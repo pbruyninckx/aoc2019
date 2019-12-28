@@ -1,5 +1,6 @@
 (ns care-package
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str])
+  (:use com.rpl.specter))
 
 (defrecord instruction [opcode modes])
 
@@ -58,12 +59,31 @@
         9 (-> state (update :rel-base #(+ % (get-data 1 (modes 0)))) (update :pos #(+ 2 %)))
         99 (assoc state :continue false)))))
 
+(defn direction-to-code [c]
+  (case c
+    "a" -1
+    "d" 1
+    0))
 
-(defn run-program [data pos rel-base output]
-  (let [cmd-output (run-cmd (machine-state. true data nil '() pos rel-base))
+(declare draw-screen)
+(declare create-screen)
+
+(defn get-direction [output]
+  (let [screen (create-screen output)
+        dash (select-first [ALL 0 0
+                            ] (filter #(= 3 (% 1)) screen))
+        ball (select-first [ALL 0 0
+                            ] (filter #(= 4 (% 1)) screen))]
+    (compare  ball dash)))
+
+(defn run-program [data pos rel-base output ]
+  (let [cmd-output (run-cmd (machine-state. true data nil (repeatedly #(get-direction output)) pos rel-base))
         new-output (if (:output cmd-output)
                      (conj output (:output cmd-output))
-                     output)]
+                     output)
+        ;_ (if (:output cmd-output)
+        ;    (draw-screen (create-screen new-output)))
+        ]
     (if (:continue cmd-output)
       (recur (:data cmd-output) (:pos cmd-output) (:rel-base cmd-output) new-output)
       output)))
@@ -72,13 +92,48 @@
 
 (defn to-map [v] (into {} (map-indexed vector v)))
 
+(defn code-to-symbol [code]
+  (case code 0 \  1 \| 2 \x 3 \- 4 \o code))
+
 (def input-data
   (to-map
     (mapv read-string (str/split (str/trim-newline (slurp "data/input13.txt")) #","))))
 
-(def program-output (run-program input-data 0 0 []))
+
+(defn create-screen [raw-output]
+  (reduce (fn [out [x y tile]] (assoc out [x y] tile)) {} (partition 3 raw-output)))
+
+
+
+(def screen-size [37 20])
+
+(defn draw-screen [screen]
+  (let [empty-screen (vec (repeat (inc (screen-size 1)) (vec (repeat (inc (screen-size 0)) \0))))
+        transformed-display (transform [ALL 1] code-to-symbol screen)
+        display-screen (reduce (fn [screen [pos c]] (if (>= (pos 0) 0)
+                                                      (assoc-in screen (reverse pos) c)
+                                                      screen))
+                               empty-screen
+                               transformed-display)
+        str-screen (mapv str/join display-screen)]
+    (println (str/join "\n" (map str/join str-screen)))
+    (when-first [score (filter (fn [[[x _] _]] (= x -1)) screen)]
+      (println score))))
+
+
+(def program-output
+  (run-program input-data 0 0 []))
 
 (def screen
-  (reduce (fn [out [x y tile]] (assoc out [x y] tile)) {} (partition 3 program-output)))
+  (create-screen program-output))
 
 (println (count (filter #(= (% 1) 2) screen)))
+
+; And perform part 2
+(def play-data
+  (assoc input-data 0 2))
+
+(def play-output
+  (run-program play-data 0 0 []))
+
+(draw-screen (create-screen play-output))

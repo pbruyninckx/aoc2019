@@ -28,8 +28,8 @@
     (into {} (map (fn [rule] [(-> rule :output :chemical) rule]) rules))))
 
 (defn round-up-division [a b]
-  (+ (Integer/divideUnsigned a b)
-     (if (= 0 (Integer/remainderUnsigned a b))
+  (+ (quot a b)
+     (if (= 0 (rem a b))
        0 1)))
 
 (defn move-ore [state]
@@ -39,32 +39,51 @@
         (update :ore + ((:created state) "ORE")))
     state))
 
-(defn solve [rules]
-  (loop [state (->product-state 0 {"FUEL" 1} {})]
-    (if (empty? (:created state))
-      (:ore state)
-      (let [[product quantity] (first (:created state))]
-        (if (contains? (:rest state) product)
-          (case (compare quantity ((:rest state) product))
-            -1 (recur (-> state (update-in [:created] dissoc product)
-                          (update-in [:rest product] - quantity)))
-            0 (recur (-> state (update-in [:created] dissoc product)
-                         (update-in [:rest] dissoc product)))
-            1 (recur (-> state (update-in [:created product] - (get-in state [:rest product]))
-                         (update-in [:rest] dissoc product))))
-          (let [{:keys [input output]} (rules product)
-                repeats (round-up-division quantity (:quantity output))
-                to-create (mapv #(update % :quantity * repeats) input)
-                new-created (reduce (fn [coll {:keys [chemical quantity]}]
-                                      (if (contains? coll chemical)
-                                        (update coll chemical + quantity)
-                                        (assoc coll chemical quantity)))
-                                    (:created state)
-                                    to-create)
-                to-rest (- (* repeats (:quantity output)) quantity)
-                new-rest (assoc (:rest state) product to-rest)]
-            (recur (-> state (assoc :created (dissoc new-created product) :rest new-rest)
-                       (move-ore)))))))))
+(defn solve
+  ([rules] (solve rules 1))
+  ([rules target-fuel]
+   (loop [state (->product-state 0 {"FUEL" target-fuel} {})]
+     (if (empty? (:created state))
+       (:ore state)
+       (let [[product quantity] (first (:created state))]
+         (if (contains? (:rest state) product)
+           (case (compare quantity ((:rest state) product))
+             -1 (recur (-> state (update-in [:created] dissoc product)
+                           (update-in [:rest product] - quantity)))
+             0 (recur (-> state (update-in [:created] dissoc product)
+                          (update-in [:rest] dissoc product)))
+             1 (recur (-> state (update-in [:created product] - (get-in state [:rest product]))
+                          (update-in [:rest] dissoc product))))
+           (let [{:keys [input output]} (rules product)
+                 repeats (round-up-division quantity (:quantity output))
+                 to-create (mapv #(update % :quantity * repeats) input)
+                 new-created (reduce (fn [coll {:keys [chemical quantity]}]
+                                       (if (contains? coll chemical)
+                                         (update coll chemical + quantity)
+                                         (assoc coll chemical quantity)))
+                                     (:created state)
+                                     to-create)
+                 to-rest (- (* repeats (:quantity output)) quantity)
+                 new-rest (assoc (:rest state) product to-rest)]
+             (recur (-> state (assoc :created (dissoc new-created product) :rest new-rest)
+                        (move-ore))))))))))
 
-(def input (slurp "data/input14.txt"))
-(println (solve (parse-input input)))
+(def parsed-input (-> "data/input14.txt" slurp parse-input))
+(def ore-for-one (solve parsed-input))
+(println ore-for-one)
+(def trillion 1000000000000)
+(def min-input (quot trillion ore-for-one))
+(def max-input
+  (loop [fuel-amount min-input]
+    (if (> (solve parsed-input fuel-amount) trillion)
+        fuel-amount
+        (recur (* 2 fuel-amount)))))
+(println
+  (loop [a min-input b max-input]
+    (if (= (inc a) b)
+      a
+      (let [mid-point (quot (+ a b) 2)
+            mid-value (solve parsed-input mid-point)]
+        (if (< mid-value trillion)
+          (recur mid-point b)
+          (recur a mid-point))))))
